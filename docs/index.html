@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Netflix Katalog Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1a1d23; --muted: #5d6573; --line: #e3e6eb;
+    --film: #2563eb; --serie: #ea580c; --accent: #2563eb; --accent-soft: #bcd0f7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12141a; --card: #1b1e26; --text: #e8eaee; --muted: #9aa3b2; --line: #2b303b;
+      --film: #5b9bff; --serie: #ff8a4c; --accent: #5b9bff; --accent-soft: #2f4670;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 22px; margin: 0 0 2px; }
+  .sub { color: var(--muted); margin: 0 0 16px; font-size: 13px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; background: var(--card);
+             border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+  .filters label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 4px; }
+  select, button { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+                   border-radius: 6px; padding: 6px 8px; min-width: 120px; }
+  button { cursor: pointer; min-width: 0; }
+  button:hover { border-color: var(--accent); }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+  .kpi b { display: block; font-size: 24px; }
+  .kpi span { color: var(--muted); font-size: 12px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+  .card.full { grid-column: 1 / -1; }
+  .card h2 { font-size: 16px; margin: 0; }
+  .card p { color: var(--muted); font-size: 12px; margin: 2px 0 8px; }
+  .head { display: flex; justify-content: space-between; align-items: start; gap: 8px; }
+  .box { position: relative; height: 320px; }
+  .seg button { border-radius: 0; border-right-width: 0; padding: 4px 10px; }
+  .seg button:first-child { border-radius: 6px 0 0 6px; }
+  .seg button:last-child { border-radius: 0 6px 6px 0; border-right-width: 1px; }
+  .seg button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .empty { color: var(--muted); text-align: center; padding-top: 120px; }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Netflix Katalog Dashboard</h1>
+  <p class="sub">Datenbasis: Katalog-Stand 2021, 8'807 Titel. Ein Titel zählt bei mehreren Ländern bzw. Genres jeweils in jedem. Standardmässig ab 2014, da davor nur wenige Titel pro Jahr hinzukamen.</p>
+
+  <div class="filters">
+    <label>Typ<select id="fType"><option value="">Alle</option><option value="0">Filme</option><option value="1">Serien</option></select></label>
+    <label>Land<select id="fCountry"></select></label>
+    <label>Genre<select id="fGenre"></select></label>
+    <label>Zielgruppe<select id="fRating"></select></label>
+    <label>Hinzugefügt ab<select id="fFrom"></select></label>
+    <label>bis<select id="fTo"></select></label>
+    <button id="reset">Zurücksetzen</button>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><b id="kN">–</b><span>Titel (Filter)</span></div>
+    <div class="kpi"><b id="kShare">–</b><span>Serienanteil</span></div>
+    <div class="kpi"><b id="kAge">–</b><span>Medianalter bei Aufnahme</span></div>
+    <div class="kpi"><b id="kCountry">–</b><span>Top-Land</span></div>
+  </div>
+
+  <div class="grid">
+    <div class="card full">
+      <div class="head">
+        <div><h2>Filme vs. Serien über die Jahre</h2><p>Titel nach Jahr der Aufnahme bei Netflix.</p></div>
+        <div class="seg" id="segMix"><button data-v="share" class="on">Anteil %</button><button data-v="abs">Anzahl</button></div>
+      </div>
+      <div class="box"><canvas id="cMix"></canvas></div>
+    </div>
+
+    <div class="card">
+      <h2>Top-Länder</h2>
+      <p>Klick auf einen Balken setzt den Länderfilter.</p>
+      <div class="box"><canvas id="cCountry"></canvas></div>
+    </div>
+
+    <div class="card">
+      <h2 id="tGenre">Dominierende Genres</h2>
+      <p id="pGenre">Top 10 im aktuellen Filter.</p>
+      <div class="box"><canvas id="cGenre"></canvas></div>
+    </div>
+
+    <div class="card full">
+      <div class="head">
+        <div><h2>Alter der Titel bei Aufnahme</h2><p>Jahr der Aufnahme minus Erscheinungsjahr.</p></div>
+        <div class="seg" id="segAge"><button data-v="median" class="on">Median</button><button data-v="old" class="on">Anteil älter als 5 Jahre</button></div>
+      </div>
+      <div class="box"><canvas id="cAge"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script>
+const T = 0, RY = 1, YA = 2, RG = 3, CO = 4, GE = 5;
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const uniq = (i, multi) => [...new Set(DATA.flatMap(r => multi ? r[i] : [r[i]]))].filter(Boolean).sort((a, b) => a.localeCompare(b));
+const years = [...new Set(DATA.map(r => r[YA]).filter(Boolean))].sort();
+const RATING_ORDER = ["Kinder/Familie", "Jugendliche", "Erwachsene", "Unbewertet", "Unbekannt"];
+
+function fill(sel, items, allLabel, fmt = x => x) {
+  $(sel).innerHTML = `<option value="">${allLabel}</option>` + items.map(x => `<option value="${x}">${fmt(x)}</option>`).join("");
+}
+fill("fCountry", uniq(CO, true), "Alle");
+fill("fGenre", uniq(GE, true), "Alle");
+fill("fRating", RATING_ORDER, "Alle");
+fill("fFrom", years, "Alle"); fill("fTo", years, "Alle");
+const DEFAULT_FROM = "2014";  // vor 2014 nur wenige Titel pro Jahr (1-24), Anteile wären verzerrt
+$("fFrom").value = DEFAULT_FROM;
+
+const F = () => ({ type: $("fType").value, country: $("fCountry").value, genre: $("fGenre").value,
+                   rating: $("fRating").value, from: +$("fFrom").value || 0, to: +$("fTo").value || 9999 });
+function match(r, f, skip) {
+  if (f.type !== "" && r[T] !== +f.type) return false;
+  if (skip !== "country" && f.country && !r[CO].includes(f.country)) return false;
+  if (f.genre && !r[GE].includes(f.genre)) return false;
+  if (f.rating && r[RG] !== f.rating) return false;
+  if (r[YA] != null ? (r[YA] < f.from || r[YA] > f.to) : (f.from || f.to < 9999)) return false;
+  return true;
+}
+const median = a => { const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length ? (s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2) : null; };
+const count = (rows, i) => { const m = new Map(); rows.forEach(r => r[i].forEach(k => m.set(k, (m.get(k) || 0) + 1))); return [...m].sort((a, b) => b[1] - a[1]); };
+const age = r => Math.max(0, r[YA] - r[RY]);
+
+Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+const charts = {};
+function draw(id, cfg) {
+  Chart.defaults.color = css("--muted"); Chart.defaults.borderColor = css("--line");
+  if (charts[id]) { charts[id].destroy(); }
+  charts[id] = new Chart($(id), cfg);
+}
+const mode = { mix: "share" };
+
+function render() {
+  const f = F(), rows = DATA.filter(r => match(r, f)), rowsAllC = DATA.filter(r => match(r, f, "country"));
+  const film = css("--film"), serie = css("--serie"), accent = css("--accent");
+
+  // KPIs
+  const ages = rows.filter(r => r[YA] != null).map(age);
+  const topC = count(rows, CO)[0];
+  $("kN").textContent = rows.length.toLocaleString("de-CH");
+  $("kShare").textContent = rows.length ? Math.round(100 * rows.filter(r => r[T] === 1).length / rows.length) + " %" : "–";
+  $("kAge").textContent = ages.length ? median(ages) + " J." : "–";
+  $("kCountry").textContent = topC ? topC[0] : "–";
+
+  // 1) Film/Serie pro Jahr
+  const ys = years.filter(y => y >= f.from && y <= f.to);
+  const nF = ys.map(y => rows.filter(r => r[YA] === y && r[T] === 0).length);
+  const nS = ys.map(y => rows.filter(r => r[YA] === y && r[T] === 1).length);
+  const share = mode.mix === "share";
+  const pct = (a, b) => a.map((v, i) => (v + b[i]) ? +(100 * v / (v + b[i])).toFixed(1) : null);
+  draw("cMix", { type: share ? "line" : "bar",
+    data: { labels: ys, datasets: [
+      { label: "Filme", data: share ? pct(nF, nS) : nF, backgroundColor: film, borderColor: film, fill: share ? "origin" : false, stack: "a" },
+      { label: "Serien", data: share ? pct(nS, nF) : nS, backgroundColor: serie, borderColor: serie, fill: share ? "-1" : false, stack: "a" }] },
+    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+      elements: { point: { radius: 3 }, line: { borderWidth: 2 } },
+      scales: { y: { stacked: true, min: 0, max: share ? 100 : undefined, title: { display: true, text: share ? "Anteil in %" : "Anzahl Titel" } },
+                x: { stacked: true, title: { display: true, text: "Jahr der Aufnahme" } } } } });
+
+  // 2) Laender
+  const cc = count(rowsAllC, CO).slice(0, 10);
+  draw("cCountry", { type: "bar",
+    data: { labels: cc.map(c => c[0]), datasets: [{ data: cc.map(c => c[1]),
+      backgroundColor: cc.map(c => !f.country || c[0] === f.country ? accent : css("--accent-soft")) }] },
+    options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+      onClick: (e, els) => { if (els.length) { const c = cc[els[0].index][0]; $("fCountry").value = $("fCountry").value === c ? "" : c; render(); } },
+      onHover: (e, els) => e.native.target.style.cursor = els.length ? "pointer" : "default",
+      scales: { x: { title: { display: true, text: "Anzahl Titel" } } } } });
+
+  // 3) Genres
+  const gg = count(rows, GE).slice(0, 10);
+  $("tGenre").textContent = f.country ? `Dominierende Genres in ${f.country}` : "Dominierende Genres";
+  draw("cGenre", { type: "bar",
+    data: { labels: gg.map(g => g[0]), datasets: [{ data: gg.map(g => g[1]), backgroundColor: accent }] },
+    options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+      scales: { x: { title: { display: true, text: "Anzahl Titel" } } } } });
+
+  // 4) Alter bei Aufnahme
+  const ya = ys.filter(y => rows.some(r => r[YA] === y));
+  const by = y => rows.filter(r => r[YA] === y).map(age);
+  const sets = [];
+  if (document.querySelector('#segAge [data-v="median"]').classList.contains("on"))
+    sets.push({ label: "Medianalter (Jahre)", data: ya.map(y => median(by(y))), borderColor: accent, backgroundColor: accent, yAxisID: "y", tension: .25 });
+  if (document.querySelector('#segAge [data-v="old"]').classList.contains("on"))
+    sets.push({ label: "Anteil älter als 5 Jahre (%)", data: ya.map(y => { const a = by(y); return +(100 * a.filter(v => v > 5).length / a.length).toFixed(1); }),
+      borderColor: serie, backgroundColor: serie, yAxisID: "y2", borderDash: [6, 4], tension: .25 });
+  draw("cAge", { type: "line", data: { labels: ya, datasets: sets },
+    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+      scales: { y: { position: "left", beginAtZero: true, title: { display: true, text: "Jahre" }, display: sets.some(s => s.yAxisID === "y") },
+                y2: { position: "right", min: 0, max: 100, grid: { drawOnChartArea: false }, title: { display: true, text: "%" }, display: sets.some(s => s.yAxisID === "y2") },
+                x: { title: { display: true, text: "Jahr der Aufnahme" } } } } });
+}
+
+["fType", "fCountry", "fGenre", "fRating", "fFrom", "fTo"].forEach(id => $(id).addEventListener("change", render));
+$("reset").onclick = () => { ["fType", "fCountry", "fGenre", "fRating", "fFrom", "fTo"].forEach(id => $(id).value = ""); $("fFrom").value = DEFAULT_FROM; render(); };
+$("segMix").onclick = e => { const b = e.target.closest("button"); if (!b) return; mode.mix = b.dataset.v;
+  document.querySelectorAll("#segMix button").forEach(x => x.classList.toggle("on", x === b)); render(); };
+$("segAge").onclick = e => { const b = e.target.closest("button"); if (!b) return; b.classList.toggle("on");
+  if (!document.querySelector("#segAge .on")) b.classList.add("on"); render(); };
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+render();
+</script>
+</body>
+</html>
